@@ -28,9 +28,11 @@ OUTPUT_DIR = Path(os.environ.get("TG_OUTPUT_DIR", "/media/devmon/sda1-usb-Kingst
 SESSION_DIR = Path(os.environ.get("TELEGRAM_SESSION", "."))
 SESSION_FILE = str(SESSION_DIR / Path(os.environ.get("TELEGRAM_SESSION_NAME", "tgdl_session")))
 
-# Passwords / admin: only this user id can command the bot (optional).
-# Set ALLOWED_USER_ID to your numeric Telegram id to lock it down. 0 = allow anyone private.
-ALLOWED_USER_ID = int(os.environ.get("TG_ALLOWED_USER_ID", "0"))
+# Access control: only listed Telegram user ids may use the bot.
+# Comma-separated, e.g. "11111,22222". "0" or empty = allow anyone in a private chat.
+ALLOWED_USERS = {
+    int(x) for x in os.environ.get("TG_ALLOWED_USER_ID", "0").split(",") if x.strip().isdigit()
+}
 
 logging.basicConfig(
     level=logging.INFO,
@@ -80,7 +82,8 @@ def progress(current: int, total: int) -> None:
 
 async def handler(event: events.NewMessage.Event) -> None:
     uid = event.from_id.user_id if event.from_id else None
-    if ALLOWED_USER_ID and uid != ALLOWED_USER_ID:
+    # "0" in the set = allow-anyone mode (empty list -> open too).
+    if uid is not None and ALLOWED_USERS and 0 not in ALLOWED_USERS and uid not in ALLOWED_USERS:
         await event.reply("Not authorised.")
         return
 

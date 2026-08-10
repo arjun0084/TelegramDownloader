@@ -10,7 +10,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # App code
 COPY downloader.py .
-COPY run.py . 2>/dev/null || true
 
 # Where media lands (expects a bind mount here from the host)
 RUN mkdir -p /downloads

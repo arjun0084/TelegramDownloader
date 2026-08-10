@@ -61,8 +61,9 @@ don't require re-login. `restart: unless-stopped` brings it back on reboot.
 - **Forward any movie/file** → downloads straight to the mounted folder.
 
 ## 🔐 Optional lockdown
-Set `TG_ALLOWED_USER_ID` in `.env` to your numeric Telegram id
-(get it from **@userinfobot**) so only you can use the bot. `0` = allow anyone.
+Set `TG_ALLOWED_USER_ID` in `.env` to the numeric Telegram ids allowed to use it.
+Comma-separate for multiple users, e.g. `TG_ALLOWED_USER_ID=11111,22222`.
+Get your id from **@userinfobot**. `0` (default) = allow anyone private chat.
 
 ---
 
