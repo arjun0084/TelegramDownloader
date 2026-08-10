@@ -14,6 +14,7 @@ Run on the HOST (so it can see /media/devmon/...).
 import asyncio
 import logging
 import os
+import time
 from pathlib import Path
 
 from telethon import TelegramClient, events
@@ -52,12 +53,32 @@ def safe_name(name: str) -> str:
     return s or "file"
 
 
-async def download_media(event: events.NewMessage.Event) -> str:
-    """Download an entity's media into OUTPUT_DIR. Returns saved path string."""
+def _fmt_size(n: int) -> str:
+    """Human-readable size."""
+    if n >= 1_048_576:
+        return f"{n / 1_048_576:.1f} MB"
+    if n >= 1024:
+        return f"{n / 1024:.0f} KB"
+    return f"{n} B"
+
+
+def _progress_bar(pct: float, width: int = 18) -> str:
+    filled = int(round(pct / 100 * width))
+    return "█" * filled + "░" * (width - filled)
+
+
+async def download_media(event: events.NewMessage.Event, status_msg) -> str:
+    """Download an entity's media into OUTPUT_DIR, live-updating status_msg.
+
+    The same message is edited in place with a progress bar as it downloads,
+    throttled so we don't trip Telegram's "message not modified" / edit limits.
+    Returns the saved path string.
+    """
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     # Telegram's pretty filename (e.g. "Movie.2024.1080p.mkv")
     base = getattr(event.message.file, "name", None) or f"media_{event.message.id}"
+    total = getattr(event.message.file, "size", 0) or 0
     name = safe_name(str(base))
     path = OUTPUT_DIR / name
 
@@ -68,16 +89,36 @@ async def download_media(event: events.NewMessage.Event) -> str:
         n += 1
 
     log.info("Downloading '%s' -> %s ...", name, path)
+
+    last_edit = [0.0]           # mutable, shared by progress closure
+    last_pct = [-1]
+
+    async def progress(current: int, done: int) -> None:
+        nonlocal last_edit, last_pct
+        pct = (current / done * 100) if done else 0
+        now = time.monotonic()
+
+        # Only edit when >0.5% progress AND >=700ms since last edit, or at 100%.
+        changed = pct - last_pct[0] >= 0.5 or pct >= 100
+        if changed and (now - last_edit[0] >= 0.7 or pct >= 100):
+            bar = _progress_bar(pct)
+            text = (
+                f"⏳ Downloading `{name}`\n"
+                f"`{bar}` **{pct:.0f}%**\n"
+                f"{_fmt_size(current)} / {_fmt_size(done)}"
+            )
+            try:
+                await status_msg.edit(text)
+                last_edit[0] = now
+                last_pct[0] = pct
+            except Exception:  # noqa: BLE001 - edit race/limits; log & carry on
+                log.debug("status edit skipped", exc_info=True)
+        log.info("  -> %5.1f%%  (%s / %s)", pct, _fmt_size(current), _fmt_size(done))
+
     status = await client.download_media(
         event.message, file=str(path), progress_callback=progress
     )
     return str(status or path)
-
-
-def progress(current: int, total: int) -> None:
-    if total:
-        pct = current / total * 100
-        log.info("  -> %5.1f%%  (%s / %s MB)", pct, current // 1_048_576, total // 1_048_576)
 
 
 async def handler(event: events.NewMessage.Event) -> None:
@@ -98,16 +139,24 @@ async def handler(event: events.NewMessage.Event) -> None:
         return
 
     if event.media:
-        await event.reply("Got it, downloading… ⏳")
+        status_msg = await event.reply("Got it, downloading… ⏳")
         try:
-            saved = await download_media(event)
+            saved = await download_media(event, status_msg)
             size = Path(saved).stat().st_size / 1_048_576 if Path(saved).exists() else 0
-            await event.reply(
-                f"Done ✅ saved:\n`{saved}`\n({size:,.1f} MB)"
-            )
+            try:
+                await status_msg.edit(
+                    f"✅ Done — `{Path(saved).name}`\n"
+                    f"`{saved}`\n"
+                    f"({size:,.1f} MB)"
+                )
+            except Exception:  # noqa: BLE001 - keep going even if edit fails
+                await event.reply(f"Done ✅ saved:\n`{saved}`\n({size:,.1f} MB)")
         except Exception as exc:  # noqa: BLE001
             log.exception("download failed")
-            await event.reply(f"Failed ❌ {exc}")
+            try:
+                await status_msg.edit(f"Failed ❌ {exc}")
+            except Exception:  # noqa: BLE001
+                await event.reply(f"Failed ❌ {exc}")
     else:
         await event.reply("Send or forward a media file (video/document/photo).")
 
