@@ -1,0 +1,31 @@
+# Telegram Movie Downloader — spins up its own container.
+# Run on the HOST (where Docker + the USB drive live):
+#   docker compose up -d
+#
+# Fill in your secrets in .env  (template provided: .env.example)
+# Edit the download volume path below to wherever your media lives.
+
+services:
+  tgdl:
+    build: .
+    container_name: tgdl
+    restart: unless-stopped
+
+    # ---- your secrets (copy .env.example -> .env and fill) ----
+    env_file:
+      - .env
+
+    environment:
+      # You can override here or rely on .env; keep it simple in .env
+      TG_OUTPUT_DIR: /downloads
+
+    # ---- THE IMPORTANT PART: where downloaded movies actually land ----
+    # Map your host media dir into the container. Point the left side at YOUR
+    # USB path, e.g.  /media/devmon/sda1-usb-Kingston_DataTra:/downloads
+    volumes:
+      - /media/devmon/sda1-usb-Kingston_DataTra:/downloads
+      # keep the Telethon session so you don't re-auth on restart
+      - tgdl_data:/data
+
+volumes:
+  tgdl_data:
