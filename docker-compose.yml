@@ -1,13 +1,15 @@
-# Telegram Movie Downloader — spins up its own container.
+# Telegram Movie Downloader — pull the image from Docker Hub, no build needed.
 # Run on the HOST (where Docker + the USB drive live):
-#   docker compose up -d
+#   ./run.sh              # first install / update: pull + start
+#   docker compose up -d  # or plain compose
 #
 # Fill in your secrets in .env  (template provided: .env.example)
 # Edit the download volume path below to wherever your media lives.
 
 services:
   tgdl:
-    build: .
+    # Image is built & pushed by CI (see .github/workflows/docker-hub.yml).
+    image: arjun0084/telegram-downloader:latest
     container_name: tgdl
     restart: unless-stopped
 
@@ -20,10 +22,10 @@ services:
       TG_OUTPUT_DIR: /downloads
 
     # ---- THE IMPORTANT PART: where downloaded movies actually land ----
-    # Map your host media dir into the container. Point the left side at YOUR
-    # USB path, e.g.  /media/devmon/sda1-usb-Kingston_DataTra:/downloads
+    # Point MEDIA_HOST_DIR (in .env) at your host media folder, e.g.
+    #   MEDIA_HOST_DIR=/media/devmon/sda1-usb-Kingston_DataTra
     volumes:
-      - /media/devmon/sda1-usb-Kingston_DataTra:/downloads
+      - ${MEDIA_HOST_DIR}:/downloads
       # keep the Telethon session so you don't re-auth on restart
       - tgdl_data:/data
 
