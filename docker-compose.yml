@@ -9,7 +9,7 @@
 services:
   tgdl:
     # Image is built & pushed by CI (see .github/workflows/docker-hub.yml).
-    image: arjun0084/telegram-downloader:latest
+    image: arjun9899/telegramdownloader:latest
     container_name: tgdl
     restart: unless-stopped
 
