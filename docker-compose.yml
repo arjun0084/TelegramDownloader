@@ -1,13 +1,15 @@
-# Telegram Movie Downloader — spins up its own container.
+# Telegram Movie Downloader — pull the image from Docker Hub, no build needed.
 # Run on the HOST (where Docker + the USB drive live):
-#   docker compose up -d
+#   ./run.sh              # first install / update: pull + start
+#   docker compose up -d  # or plain compose
 #
 # Fill in your secrets in .env  (template provided: .env.example)
 # Edit the download volume path below to wherever your media lives.
 
 services:
   tgdl:
-    build: .
+    # Image is built & pushed by CI (see .github/workflows/docker-hub.yml).
+    image: arjun0084/telegram-downloader:latest
     container_name: tgdl
     restart: unless-stopped
 
