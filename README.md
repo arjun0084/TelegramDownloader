@@ -21,31 +21,46 @@ Forward a movie/file to **@beasboxplexbot** → it saves it to your media folder
 ---
 
 ## 🐳 Deploy (recommended) — run on the HOST where Docker + USB live
-No repo clone needed for friends: just `docker compose` + `.env`.
+No repo clone or build needed — the image comes from Docker Hub.
 
-### 1. Get your API credentials
-   - Go to **https://my.telegram.org/login** → log in (phone + code)
-   - Click **API development tools**
-   - Note `api_id` (number) and `api_hash` (string). Free, no installs.
+### ⚡ One-command install (needs Docker + compose plugin)
+```bash
+curl -fsSL -o run.sh https://raw.githubusercontent.com/arjun0084/TelegramDownloader/main/run.sh && bash run.sh
+```
+On first run it downloads `docker-compose.yml` + `.env.example`, creates `.env`,
+and tells you to fill it in (secrets + `MEDIA_HOST_DIR`). Run `./run.sh` again and the
+container is up. Updates are the same command.
 
-### 2. Get the compose file + config
+> ℹ️ The curl URLs need the GitHub repo to be **Public** (raw files). If it's
+> private, clone it instead or download via the GitHub web UI.
+
+### 🚀 Even simpler for friends — plain `docker run`
+No repo, no compose — just Docker and your credentials:
+```bash
+docker run -d --name tgdl --restart unless-stopped \
+  -v /path/to/your/media:/downloads -v tgdl_data:/data \
+  -e TG_API_ID=... -e TG_API_HASH=... -e TG_BOT_TOKEN=... \
+  -e TG_OUTPUT_DIR=/downloads \
+  arjun0084/telegram-downloader:latest
+```
+
+### 🔑 What you still need (one time)
+- **API credentials**: https://my.telegram.org/login → **API development tools**
+  → note `api_id` + `api_hash` (free, no installs).
+- **Bot token**: already in `.env.example` (from @BotFather).
+- **`MEDIA_HOST_DIR`**: full path to your downloads folder (in `.env`).
+
+### 📝 Manual setup (if you prefer)
 ```bash
 mkdir tgdl && cd tgdl
-curl -O https://raw.githubusercontent.com/arjun0084/TelegramDownloader/main/docker-compose.yml
-curl -O https://raw.githubusercontent.com/arjun0084/TelegramDownloader/main/.env.example
+curl -fsSL -O https://raw.githubusercontent.com/arjun0084/TelegramDownloader/main/docker-compose.yml
+curl -fsSL -O https://raw.githubusercontent.com/arjun0084/TelegramDownloader/main/.env.example
 cp .env.example .env
-nano .env     # paste TG_API_ID, TG_API_HASH  (token already filled)
+nano .env     # TG_API_ID, TG_API_HASH, MEDIA_HOST_DIR  (token already filled)
+./run.sh
 ```
 
-### 3. Point the download volume at YOUR media path
-Edit `docker-compose.yml`. Change ONLY the left side of this line
-to where your media actually lives:
-```yaml
-volumes:
-  - /media/devmon/sda1-usb-Kingston_DataTra:/downloads     # <- left side = YOUR host path
-```
-
-### 4. Run (pulls the image from Docker Hub)
+### ▶️ Day-to-day (once `.env` is filled)
 ```bash
 ./run.sh            # install: pull + start        (or: docker compose up -d)
 ./run.sh update     # pull latest image + recreate (updates are this easy)
