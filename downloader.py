@@ -122,6 +122,10 @@ async def download_media(event: events.NewMessage.Event, status_msg) -> str:
 
 
 async def handler(event: events.NewMessage.Event) -> None:
+    # Defensive: never react to our own outgoing messages (loop guard).
+    if event.out:
+        return
+
     uid = event.from_id.user_id if event.from_id else None
     # "0" in the set = allow-anyone mode (empty list -> open too).
     if uid is not None and ALLOWED_USERS and 0 not in ALLOWED_USERS and uid not in ALLOWED_USERS:
@@ -168,7 +172,10 @@ async def main() -> None:
             "Missing config. Set TG_API_ID, TG_API_HASH, TG_BOT_TOKEN (and TG_OUTPUT_DIR)."
         )
     client = TelegramClient(SESSION_FILE, API_ID, API_HASH)
-    client.on(events.NewMessage(func=lambda e: e.is_private))(handler)
+    # Ignore the bot's own outgoing messages (else its replies re-trigger the
+    # handler and loop "Not authorised"). Forwards are still handled — that's
+    # the whole point (e.forward must NOT be excluded).
+    client.on(events.NewMessage(func=lambda e: e.is_private and not e.out))(handler)
     await client.start(bot_token=BOT_TOKEN)
     log.info("Bot online as %s. Waiting for forwarded files ...", (await client.get_me()).username)
     log.info("Output dir: %s", OUTPUT_DIR)
