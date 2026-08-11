@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Telegram Movie Downloader — self-hosted</title>
+<meta name="description" content="Self-hosted Telegram bot. Forward any movie or file to your bot and it saves it straight to your NAS or USB drive. No size limits, no cloud, no monthly fees.">
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📥</text></svg>">
+</head>
+<body>
+
+<header>
+  <div class="nav">
+    <div class="logo">📥 tg<span>dl</span></div>
+    <div>
+      <a href="https://github.com/arjun0084/TelegramDownloader">GitHub</a>
+      <a href="https://hub.docker.com/r/arjun0084/telegram-downloader">Docker Hub</a>
+    </div>
+  </div>
+</header>
+
+<div class="hero">
+  <h1>Forward a movie.<br><span class="grad">It saves itself.</span></h1>
+  <p>A self-hosted Telegram downloader bot. Send it any file — a movie, a series, a document — and it saves it straight to your own storage. No 20&nbsp;MB cloud cap, no monthly fees, no third-party servers.</p>
+  <a class="btn" href="#install">Install in one command</a>
+  <a class="btn ghost" href="#usage">How it works</a>
+  <div class="badges">
+    <span>🐳 Docker</span><span>🛰 MTProto — no size limit</span><span>🔒 Self-hosted</span><span>🏠 Runs on a Pi</span>
+  </div>
+</div>
+
+<section id="features">
+  <div class="wrap">
+    <h2>Why self-host it</h2>
+    <p class="sub">Your files, your disk, your rules.</p>
+    <div class="grid">
+      <div class="card"><div class="ico">🛰</div><h3>No size limit</h3><p>MTProto (Telethon) session instead of the bot cloud API — 2&nbsp;GB movies download fine, not capped at 20&nbsp;MB.</p></div>
+      <div class="card"><div class="ico">🔒</div><h3>Private by default</h3><p>Files go straight to your drive over Telegram's encrypted transport. No middleman server ever sees them.</p></div>
+      <div class="card"><div class="ico">💰</div><h3>Free to run</h3><p>One small container on the hardware you already own — a Raspberry Pi or any always-on box.</p></div>
+      <div class="card"><div class="ico">🏠</div><h3>Runs on a Pi</h3><p>Multi-arch image (amd64 + arm64) built by CI — your Pi, your friend's Intel laptop, both work.</p></div>
+      <div class="card"><div class="ico">📊</div><h3>Live progress</h3><p>The status message updates in place with a progress bar, size and percentage as the download runs.</p></div>
+      <div class="card"><div class="ico">👥</div><h3>Access control</h3><p>Lock the bot to specific Telegram user ids. Random people get a single "Not authorised" — no loops.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="install">
+  <div class="wrap">
+    <h2>Install</h2>
+    <p class="sub">Prerequisite: <a href="https://docs.docker.com/engine/install/">Docker</a> with the compose plugin. Pick your path:</p>
+    <div class="tabs">
+      <button class="tab active" data-tab="tab-oneliner">⚡ One command</button>
+      <button class="tab" data-tab="tab-dockerrun">🐳 docker run</button>
+      <button class="tab" data-tab="tab-manual">📝 Manual</button>
+    </div>
+
+    <div class="pane active" id="tab-oneliner">
+      <pre><button class="copy" data-copy="curl -fsSL -o run.sh https://raw.githubusercontent.com/arjun0084/TelegramDownloader/main/run.sh &amp;&amp; bash run.sh">copy</button>curl -fsSL -o run.sh https://raw.githubusercontent.com/arjun0084/TelegramDownloader/main/run.sh &amp;&amp; bash run.sh</pre>
+      <p style="color:var(--dim);font-size:.9rem;margin-top:10px">First run downloads <code>docker-compose.yml</code> + <code>.env.example</code>, creates <code>.env</code> and tells you exactly what to fill in. Run it once more and the container is up. Updates = same command.</p>
+    </div>
+
+    <div class="pane" id="tab-dockerrun">
+      <pre><button class="copy" data-copy="docker run -d --name tgdl --restart unless-stopped \
+  -v /path/to/your/media:/downloads -v tgdl_data:/data \
+  -e TG_API_ID=... -e TG_API_HASH=... -e TG_BOT_TOKEN=... \
+  -e TG_OUTPUT_DIR=/downloads \
+  arjun0084/telegram-downloader:latest">copy</button>docker run -d --name tgdl --restart unless-stopped \
+  -v /path/to/your/media:/downloads -v tgdl_data:/data \
+  -e TG_API_ID=... -e TG_API_HASH=... -e TG_BOT_TOKEN=... \
+  -e TG_OUTPUT_DIR=/downloads \
+  arjun0084/telegram-downloader:latest</pre>
+      <p style="color:var(--dim);font-size:.9rem;margin-top:10px">The no-compose path. Swap the env values for yours and the media path for your folder.</p>
+    </div>
+
+    <div class="pane" id="tab-manual">
+      <pre><button class="copy" data-copy="mkdir tgdl &amp;&amp; cd tgdl
+curl -fsSL -O https://raw.githubusercontent.com/arjun0084/TelegramDownloader/main/docker-compose.yml
+curl -fsSL -O https://raw.githubusercontent.com/arjun0084/TelegramDownloader/main/.env.example
+cp .env.example .env
+nano .env
+./run.sh">copy</button>mkdir tgdl &amp;&amp; cd tgdl
+curl -fsSL -O https://raw.githubusercontent.com/arjun0084/TelegramDownloader/main/docker-compose.yml
+curl -fsSL -O https://raw.githubusercontent.com/arjun0084/TelegramDownloader/main/.env.example
+cp .env.example .env
+nano .env
+./run.sh</pre>
+    </div>
+  </div>
+</section>
+
+<section id="how">
+  <div class="wrap">
+    <h2>How it works</h2>
+    <p class="sub">Three steps between you and a private downloader.</p>
+    <div class="steps">
+      <div class="step"><span><b>Get free API credentials</b>Grab <code>api_id</code> + <code>api_hash</code> from my.telegram.org and a bot token from @BotFather — takes two minutes, costs nothing.</span></div>
+      <div class="step"><span><b>Run one command</b>Docker pulls the image from Docker Hub. You configure your secrets in a single <code>.env</code> file and point it at your downloads folder.</span></div>
+      <div class="step"><span><b>Forward and forget</b>Open a chat with your bot, forward any movie or file, and watch it land on your drive with a live progress bar.</span></div>
+    </div>
+  </div>
+</section>
+
+<section id="config">
+  <div class="wrap">
+    <h2>Configuration</h2>
+    <p class="sub">Everything lives in one <code>.env</code> file (copy from <code>.env.example</code>).</p>
+    <table>
+      <tr><th>Variable</th><th>What it is</th><th>Where to get it</th></tr>
+      <tr><td><code>TG_API_ID</code></td><td>Telegram app id</td><td>my.telegram.org → API development tools</td></tr>
+      <tr><td><code>TG_API_HASH</code></td><td>Telegram app hash</td><td>my.telegram.org → API development tools</td></tr>
+      <tr><td><code>TG_BOT_TOKEN</code></td><td>Bot token</td><td>@BotFather → /newbot</td></tr>
+      <tr><td><code>MEDIA_HOST_DIR</code></td><td>Where downloads land on your machine</td><td>Your own path, e.g. <code>/media/usb</code> or <code>~/Videos</code></td></tr>
+      <tr><td><code>TG_ALLOWED_USER_ID</code></td><td>Allow-list of Telegram ids (comma-separated). <code>0</code> = anyone in private chat</td><td>@userinfobot</td></tr>
+    </table>
+  </div>
+</section>
+
+<section id="usage">
+  <div class="wrap">
+    <h2>Usage</h2>
+    <p class="sub">Nothing to learn.</p>
+    <ul class="notes">
+      <li>Open a private chat with your bot and send <code>/start</code> — it confirms the save path.</li>
+      <li><b>Forward any movie or file</b> — the bot replies with a live progress bar on the same message, then flips to <b>✅ Done</b>.</li>
+      <li>Day-to-day ops on the host: <code>./run.sh</code> (start), <code>./run.sh update</code> (pull latest image), <code>./run.sh logs</code> (follow logs), <code>./run.sh down</code> (stop).</li>
+      <li>Restarts are handled automatically — <code>restart: unless-stopped</code> brings the container back on reboot, and the session persists in a named volume.</li>
+    </ul>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">📥 tgdl — Telegram Movie Downloader · <a href="https://github.com/arjun0084/TelegramDownloader">GitHub</a> · <a href="https://hub.docker.com/r/arjun0084/telegram-downloader">Docker Hub</a> · self-hosted, no cloud, no limits</div>
+</footer>
+
+<script>
+function copyText(t, b) {
+  function done() { b.textContent = 'copied!'; setTimeout(function () { b.textContent = 'copy'; }, 1500); }
+  function fallback() {
+    var ta = document.createElement('textarea');
+    ta.value = t; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); done(); } catch (e) {}
+    document.body.removeChild(ta);
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(t).then(done).catch(fallback);
+  } else { fallback(); }
+}
+document.querySelectorAll('.tab').forEach(function (t) {
+  t.addEventListener('click', function () {
+    document.querySelectorAll('.tab').forEach(function (x) { x.classList.remove('active'); });
+    document.querySelectorAll('.pane').forEach(function (p) { p.classList.remove('active'); });
+    t.classList.add('active');
+    document.getElementById(t.dataset.tab).classList.add('active');
+  });
+});
+document.querySelectorAll('.copy').forEach(function (b) {
+  b.addEventListener('click', function () { copyText(b.dataset.copy, b); });
+});
+</script>
+</body>
+</html>
+
