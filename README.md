@@ -1,6 +1,8 @@
 # Telegram Movie Downloader Bot
 Forward a movie/file to **@beasboxplexbot** → it saves it to your media folder.
 
+🌐 **Landing page (GitHub Pages):** https://arjun0084.github.io/TelegramDownloader/
+
 ## Why this design
 - **MTProto (Telethon)** session → **no 20 MB cloud limit**; 2 GB movies download fine.
 - Ships as a **Docker container** pulled from **Docker Hub** — no cloning/building.
