@@ -16,6 +16,7 @@ import logging
 import os
 import time
 from pathlib import Path
+from collections import defaultdict
 
 from telethon import TelegramClient, events
 
@@ -41,6 +42,10 @@ logging.basicConfig(
 )
 log = logging.getLogger("tgdl")
 
+# Per-message download state: key = (chat_id, message_id)
+# value = dict with start_time, last_bytes, last_time, cancelled
+_download_state = defaultdict(lambda: {"start_time": 0.0, "last_bytes": 0, "last_time": 0.0, "cancelled": False})
+
 # Sanitize a filename so it's safe on disk.
 def safe_name(name: str) -> str:
     keep = []
@@ -52,7 +57,6 @@ def safe_name(name: str) -> str:
     s = "".join(keep).strip()
     return s or "file"
 
-
 def _fmt_size(n: int) -> str:
     """Human-readable size."""
     if n >= 1_048_576:
@@ -61,11 +65,9 @@ def _fmt_size(n: int) -> str:
         return f"{n / 1024:.0f} KB"
     return f"{n} B"
 
-
 def _progress_bar(pct: float, width: int = 18) -> str:
     filled = int(round(pct / 100 * width))
     return "█" * filled + "░" * (width - filled)
-
 
 async def download_media(event: events.NewMessage.Event, status_msg) -> str:
     """Download an entity's media into OUTPUT_DIR, live-updating status_msg.
@@ -90,34 +92,69 @@ async def download_media(event: events.NewMessage.Event, status_msg) -> str:
 
     log.info("Downloading '%s' -> %s ...", name, path)
 
-    last_edit = [0.0]           # mutable, shared by progress closure
-    last_pct = [-1]
+    # Init state for this message
+    chat_id = event.chat_id
+    msg_id = event.message.id
+    state = _download_state[(chat_id, msg_id)]
+    state["start_time"] = time.monotonic()
+    state["last_bytes"] = 0
+    state["last_time"] = state["start_time"]
+    state["cancelled"] = False
 
-    async def progress(current: int, done: int) -> None:
-        nonlocal last_edit, last_pct
-        pct = (current / done * 100) if done else 0
+    async def progress(current: int, total: int) -> None:
+        """Progress callback with speed calculation and cancel support."""
+        if state["cancelled"]:
+            raise Exception("Download cancelled by user")
         now = time.monotonic()
+        elapsed = now - state["last_time"]
+        if elapsed >= 0.5:  # update speed at most twice per second
+            bytes_since = current - state["last_bytes"]
+            speed_bps = bytes_since / elapsed if elapsed > 0 else 0
+            state["last_bytes"] = current
+            state["last_time"] = now
+        else:
+            speed_bps = 0.0
 
+        pct = (current / total * 100) if total else 0
         # Only edit when >0.5% progress AND >=700ms since last edit, or at 100%.
-        changed = pct - last_pct[0] >= 0.5 or pct >= 100
-        if changed and (now - last_edit[0] >= 0.7 or pct >= 100):
+        changed = pct - state.get("_last_pct", -1) >= 0.5 or pct >= 100
+        last_edit_time = state.get("_last_edit", 0.0)
+        if changed and (now - last_edit_time >= 0.7 or pct >= 100):
             bar = _progress_bar(pct)
+            speed_str = _fmt_size(int(speed_bps)) + "/s" if speed_bps else ""
             text = (
                 f"⏳ Downloading `{name}`\n"
-                f"`{bar}` **{pct:.0f}%**\n"
-                f"{_fmt_size(current)} / {_fmt_size(done)}"
+                f"`{_progress_bar(pct)}` **{pct:.0f}%** {speed_str}\n"
+                f"{_fmt_size(current)} / {_fmt_size(total)}"
             )
             try:
                 await status_msg.edit(text)
-                last_edit[0] = now
-                last_pct[0] = pct
+                state["_last_edit"] = now
+                state["_last_pct"] = pct
             except Exception:  # noqa: BLE001 - edit race/limits; log & carry on
                 log.debug("status edit skipped", exc_info=True)
-        log.info("  -> %5.1f%%  (%s / %s)", pct, _fmt_size(current), _fmt_size(done))
+        log.info("  -> %5.1f%%  (%s / %s)  speed: %s/s", pct, _fmt_size(current), _fmt_size(total), _fmt_size(int(speed_bps)) if speed_bps else "0 B/s")
 
-    status = await client.download_media(
-        event.message, file=str(path), progress_callback=progress
-    )
+    try:
+        status = await client.download_media(
+            event.message, file=str(path), progress_callback=progress
+        )
+    except Exception as exc:
+        # If cancelled, we raise generic Exception above; treat as cancelled.
+        if "cancelled" in str(exc).lower():
+            log.info("Download cancelled by user for %s", name)
+            try:
+                await status_msg.edit(f"🛑 Cancelled — `{name}`")
+            except Exception:
+                pass
+            # Clean up state
+            _download_state.pop((chat_id, msg_id), None)
+            raise  # re-raise to be caught by outer handler if needed
+        else:
+            raise
+
+    # Clean up state on success
+    _download_state.pop((chat_id, msg_id), None)
     return str(status or path)
 
 
@@ -143,7 +180,10 @@ async def handler(event: events.NewMessage.Event) -> None:
         return
 
     if event.media:
-        status_msg = await event.reply("Got it, downloading… ⏳")
+        # Send initial message with cancel button
+        from telethon.tl.custom import Button
+        buttons = [[Button.callback("🛑 Cancel", f"cancel:{event.chat_id}:{event.message.id}")]]
+        status_msg = await event.reply("Got it, downloading… ⏳", buttons=buttons)
         try:
             saved = await download_media(event, status_msg)
             size = Path(saved).stat().st_size / 1_048_576 if Path(saved).exists() else 0
@@ -156,13 +196,49 @@ async def handler(event: events.NewMessage.Event) -> None:
             except Exception:  # noqa: BLE001 - keep going even if edit fails
                 await event.reply(f"Done ✅ saved:\n`{saved}`\n({size:,.1f} MB)")
         except Exception as exc:  # noqa: BLE001
-            log.exception("download failed")
-            try:
-                await status_msg.edit(f"Failed ❌ {exc}")
-            except Exception:  # noqa: BLE001
-                await event.reply(f"Failed ❌ {exc}")
+            # If cancelled, download_media already edited message; just clean up.
+            if "cancelled" in str(exc).lower():
+                log.info("Download cancelled handler: %s", exc)
+            else:
+                log.exception("download failed")
+                try:
+                    await status_msg.edit(f"Failed ❌ {exc}")
+                except Exception:
+                    await event.reply(f"Failed ❌ {exc}")
     else:
         await event.reply("Send or forward a media file (video/document/photo).")
+
+
+# ------------------------------------------------------------------------
+# Callback query handler for cancel button
+# ------------------------------------------------------------------------
+@client.on(events.CallbackQuery)
+async def callback_handler(event: events.CallbackQuery.Event) -> None:
+    data = event.data.decode()
+    if not data.startswith("cancel:"):
+        await event.answer("Unknown action", alert=True)
+        return
+    try:
+        _, chat_id_str, msg_id_str = data.split(":")
+        chat_id = int(chat_id_str)
+        msg_id = int(msg_id_str)
+    except Exception:
+        await event.answer("Invalid request", alert=True)
+        return
+
+    # Verify it's the same user who started the download (optional but good)
+    if event.sender_id and event.sender_id != event.original_update.user_id:
+        await event.answer("Not your download", alert=True)
+        return
+
+    state = _download_state.get((chat_id, msg_id))
+    if not state:
+        await event.answer("No active download to cancel", alert=True)
+        return
+
+    state["cancelled"] = True
+    await event.answer("Cancelling…", alert=False)
+    # The download_media progress loop will notice and abort.
 
 
 async def main() -> None:
@@ -177,7 +253,8 @@ async def main() -> None:
     # the whole point (e.forward must NOT be excluded).
     client.on(events.NewMessage(func=lambda e: e.is_private and not e.out))(handler)
     await client.start(bot_token=BOT_TOKEN)
-    log.info("Bot online as %s. Waiting for forwarded files ...", (await client.get_me()).username)
+    me = await client.get_me()
+    log.info("Bot online as %s. Waiting for forwarded files ...", me.username)
     log.info("Output dir: %s", OUTPUT_DIR)
     await client.run_until_disconnected()
 
