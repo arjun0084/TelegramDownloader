@@ -51,6 +51,7 @@ docker run -d --name tgdl --restart unless-stopped \
   → note `api_id` + `api_hash` (free, no installs).
 - **Bot token**: already in `.env.example` (from @BotFather).
 - **`MEDIA_HOST_DIR`**: full path to your downloads folder (in `.env`).
+- **`TG_MAX_PARALLEL`**: (optional) maximum number of parallel downloads. Default: `2`. Set to `0` for unlimited.
 
 ### 📝 Manual setup (if you prefer)
 ```bash
