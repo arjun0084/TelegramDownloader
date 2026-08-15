@@ -3,7 +3,7 @@
 #
 # The image comes from Docker Hub, so there is NOTHING to build or clone.
 #
-# ONE-COMMAND INSTALL (Docker + compose plugin required):
+# ONE-COMMAND INSTALL (Docker required):
 #   curl -fsSL -o run.sh https://raw.githubusercontent.com/arjun0084/TelegramDownloader/main/run.sh && bash run.sh
 #
 #   First run: it downloads docker-compose.yml + .env.example, creates .env,
@@ -58,32 +58,87 @@ EOF
   exit 0
 fi
 
+# Source .env to get variables
+set -a
+# shellcheck disable=SC1091
+source .env
+set +a
+
+# Defaults if not set
+: "${TG_OUTPUT_DIR:=/downloads}"
+: "${TG_MAX_PARALLEL:=2}"
+
+# Container name
+CONTAINER_NAME="tgdl"
+
+# Function to run the container
+run_container() {
+  echo ">> Starting container $CONTAINER_NAME..."
+  docker run -d \
+    --name "$CONTAINER_NAME" \
+    --restart unless-stopped \
+    -v "$MEDIA_HOST_DIR:$TG_OUTPUT_DIR" \
+    -v tgdl_data:/data \
+    -e TG_API_ID \
+    -e TG_API_HASH \
+    -e TG_BOT_TOKEN \
+    -e TG_OUTPUT_DIR \
+    -e TG_ALLOWED_USER_ID \
+    -e TG_MAX_PARALLEL \
+    arjun0084/telegram-downloader:latest
+}
+
 # ---- 3. Go --------------------------------------------------------------
 ACTION="${1:-up}"
 case "$ACTION" in
   up|start)
     echo ">> Ensuring image is present, then starting..."
-    docker compose up -d
+    docker pull arjun0084/telegram-downloader:latest
+    # Remove existing container if any
+    if docker ps -a --format '{{.Names}}' | grep -q "^$CONTAINER_NAME$"; then
+      echo ">> Removing existing container..."
+      docker rm -f "$CONTAINER_NAME" >/dev/null
+    fi
+    run_container
     ;;
   update|upgrade|pull)
     echo ">> Pulling latest image from Docker Hub..."
-    docker compose pull
+    docker pull arjun0084/telegram-downloader:latest
     echo ">> Recreating container with the new image..."
-    docker compose up -d
+    if docker ps -a --format '{{.Names}}' | grep -q "^$CONTAINER_NAME$"; then
+      docker rm -f "$CONTAINER_NAME" >/dev/null
+    fi
+    run_container
     ;;
   down|stop)
     echo ">> Stopping container..."
-    docker compose down
+    if docker ps --format '{{.Names}}' | grep -q "^$CONTAINER_NAME$"; then
+      docker stop "$CONTAINER_NAME"
+    fi
+    if docker ps -a --format '{{.Names}}' | grep -q "^$CONTAINER_NAME$"; then
+      docker rm "$CONTAINER_NAME"
+    fi
     ;;
   restart)
     echo ">> Restarting container..."
-    docker compose restart
+    if docker ps --format '{{.Names}}' | grep -q "^$CONTAINER_NAME$"; then
+      docker restart "$CONTAINER_NAME"
+    else
+      echo ">> Container not running, starting..."
+      docker pull arjun0084/telegram-downloader:latest
+      run_container
+    fi
     ;;
   logs)
-    docker compose logs -f --tail=100
+    if ! docker ps --format '{{.Names}}' | grep -q "^$CONTAINER_NAME$"; then
+      echo ">> Container $CONTAINER_NAME is not running." >&2
+      exit 1
+    fi
+    docker logs -f --tail=100 "$CONTAINER_NAME"
     ;;
   ps|status)
-    docker compose ps
+    echo ">> Container status:"
+    docker ps -a --filter "name=$CONTAINER_NAME" --format "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}"
     ;;
   *)
     echo "Usage: $0 [up|update|down|restart|logs|status]"

@@ -133,8 +133,9 @@ async def _download_media_inner(event: events.NewMessage.Event, status_msg) -> s
             speed_bps = bytes_since / elapsed if elapsed > 0 else 0
             state["last_bytes"] = current
             state["last_time"] = now
+            state["last_speed"] = speed_bps
         else:
-            speed_bps = 0.0
+            speed_bps = state.get("last_speed", 0.0)
 
         pct = (current / total * 100) if total else 0
         # Only edit when >0.5% progress AND >=700ms since last edit, or at 100%.
