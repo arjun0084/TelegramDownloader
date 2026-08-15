@@ -202,7 +202,7 @@ async def handler(event: events.NewMessage.Event) -> None:
 
     if event.media:
         # Send initial message with cancel button
-        buttons = [[Button.callback("🛑 Cancel", f"cancel:{event.chat_id}:{event.message.id}")]]
+        buttons = [[Button.inline("🛑 Cancel", f"cancel:{event.chat_id}:{event.message.id}")]]
         status_msg = await event.reply("Got it, downloading… ⏳", buttons=buttons)
         # Fire-and-forget the download task
         task = asyncio.create_task(download_media(event, status_msg))
