@@ -19,6 +19,7 @@ from pathlib import Path
 from collections import defaultdict
 
 from telethon import TelegramClient, events
+from telethon.tl.custom import Button
 
 # ------------------------------------------------------------------------
 # CONFIG — set these (see README)
@@ -36,6 +37,16 @@ ALLOWED_USERS = {
     int(x) for x in os.environ.get("TG_ALLOWED_USER_ID", "0").split(",") if x.strip().isdigit()
 }
 
+# Maximum number of parallel downloads (0 = unlimited)
+try:
+    MAX_PARALLEL = int(os.environ.get("TG_MAX_PARALLEL", "2"))
+except ValueError:
+    MAX_PARALLEL = 2
+if MAX_PARALLEL > 0:
+    DOWNLOAD_SEMAPHORE = asyncio.Semaphore(MAX_PARALLEL)
+else:
+    DOWNLOAD_SEMAPHORE = None  # unlimited
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -45,6 +56,8 @@ log = logging.getLogger("tgdl")
 # Per-message download state: key = (chat_id, message_id)
 # value = dict with start_time, last_bytes, last_time, cancelled
 _download_state = defaultdict(lambda: {"start_time": 0.0, "last_bytes": 0, "last_time": 0.0, "cancelled": False})
+# Track active download tasks to await on shutdown
+_active_tasks = set()
 
 # Sanitize a filename so it's safe on disk.
 def safe_name(name: str) -> str:
@@ -76,6 +89,14 @@ async def download_media(event: events.NewMessage.Event, status_msg) -> str:
     throttled so we don't trip Telegram's "message not modified" / edit limits.
     Returns the saved path string.
     """
+    # Limit concurrency via semaphore if configured
+    if DOWNLOAD_SEMAPHORE is not None:
+        async with DOWNLOAD_SEMAPHORE:
+            return await _download_media_inner(event, status_msg)
+    else:
+        return await _download_media_inner(event, status_msg)
+
+async def _download_media_inner(event: events.NewMessage.Event, status_msg) -> str:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     # Telegram's pretty filename (e.g. "Movie.2024.1080p.mkv")
@@ -181,30 +202,17 @@ async def handler(event: events.NewMessage.Event) -> None:
 
     if event.media:
         # Send initial message with cancel button
-        from telethon.tl.custom import Button
         buttons = [[Button.callback("🛑 Cancel", f"cancel:{event.chat_id}:{event.message.id}")]]
         status_msg = await event.reply("Got it, downloading… ⏳", buttons=buttons)
+        # Fire-and-forget the download task
+        task = asyncio.create_task(download_media(event, status_msg))
+        _active_tasks.add(task)
+        task.add_done_callback(_active_tasks.discard)
         try:
-            saved = await download_media(event, status_msg)
-            size = Path(saved).stat().st_size / 1_048_576 if Path(saved).exists() else 0
-            try:
-                await status_msg.edit(
-                    f"✅ Done — `{Path(saved).name}`\n"
-                    f"`{saved}`\n"
-                    f"({size:,.1f} MB)"
-                )
-            except Exception:  # noqa: BLE001 - keep going even if edit fails
-                await event.reply(f"Done ✅ saved:\n`{saved}`\n({size:,.1f} MB)")
-        except Exception as exc:  # noqa: BLE001
-            # If cancelled, download_media already edited message; just clean up.
-            if "cancelled" in str(exc).lower():
-                log.info("Download cancelled handler: %s", exc)
-            else:
-                log.exception("download failed")
-                try:
-                    await status_msg.edit(f"Failed ❌ {exc}")
-                except Exception:
-                    await event.reply(f"Failed ❌ {exc}")
+            await task
+        except Exception as exc:
+            # Already handled inside download_media (cancelled or failed)
+            pass
     else:
         await event.reply("Send or forward a media file (video/document/photo).")
 
@@ -212,7 +220,6 @@ async def handler(event: events.NewMessage.Event) -> None:
 # ------------------------------------------------------------------------
 # Callback query handler for cancel button
 # ------------------------------------------------------------------------
-@client.on(events.CallbackQuery)
 async def callback_handler(event: events.CallbackQuery.Event) -> None:
     data = event.data.decode()
     if not data.startswith("cancel:"):
@@ -252,11 +259,15 @@ async def main() -> None:
     # handler and loop "Not authorised"). Forwards are still handled — that's
     # the whole point (e.forward must NOT be excluded).
     client.on(events.NewMessage(func=lambda e: e.is_private and not e.out))(handler)
+    client.on(events.CallbackQuery)(callback_handler)
     await client.start(bot_token=BOT_TOKEN)
     me = await client.get_me()
     log.info("Bot online as %s. Waiting for forwarded files ...", me.username)
     log.info("Output dir: %s", OUTPUT_DIR)
     await client.run_until_disconnected()
+    # Wait for any remaining download tasks to finish (or be cancelled)
+    if _active_tasks:
+        await asyncio.wait(_active_tasks, timeout=5.0)
 
 
 if __name__ == "__main__":
